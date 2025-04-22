@@ -1,0 +1,162 @@
+--@name Jon Bastard's Spaceship V2
+--@author jon b
+--@shared
+--@include bastardlibs/obj handlers.txt
+--get the lib here:
+--https://github.com/BPRJon/bastard-library/tree/main
+--needed for it to load the mesh and hitbox
+
+--super basic, but should be a pretty good jumping off point.
+--Yes, you can change whatever you want thats the point of a base
+
+require( "bastardlibs/obj handlers.txt" )
+
+if SERVER then
+    
+    function boolToNum( bool ) --makes life easier for me
+        if bool then return 1 else return 0 end
+    end
+    
+    --load prop
+    objHandler.propFromURL( chip():getPos(), Angle(), "https://raw.githubusercontent.com/BPRJon/spaceship-base-v2/refs/heads/main/models/Flying%20car%20Hitbox.obj", true,
+    function( _prop )
+        
+        baseProp = _prop
+        seat = prop.createSeat( baseProp:getPos() + Vector( -70, 0 ,-30 ), Angle(), "models/nova/airboat_seat.mdl", true )
+        
+        seat:setParent( baseProp )
+        baseProp:setMass( 500 )
+        baseProp:enableGravity( false )
+        baseProp:enableDrag( false )
+        --baseProp:setNoDraw( true )
+        
+        --once prop is loaded, load mesh
+        objHandler.URLLoadObjAndMaterial( "https://raw.githubusercontent.com/BPRJon/spaceship-base-v2/refs/heads/main/models/Flying%20car.obj", "https://dl.dropboxusercontent.com/scl/fi/5nc1cxbqt93zvojco2suu/flying-car-texture.png?rlkey=l1sc37y8ol1cv030g394y6cdd&st=xw7u6kjj&dl=1",
+        function( holos )
+            
+            --once mesh is loaded parent holos to the base
+            for _,v in pairs( holos ) do
+                v:setParent( baseProp )
+            end
+            
+            --send holos to client to set the render bounds
+            hook.add( "ClientInitialized", "MeshSetup", function( ply )
+                
+                net.start( "SetHoloRenderBounds" )
+                    net.writeTable( holos )
+                    net.send( ply )
+                
+                end)
+            
+            baseProp:setPos( chip():getPos() + Vector( 0, 200, 50 ) )
+            
+        end)
+        
+        hook.add( "ClientInitialized", "Server2Client", function( ply )
+            
+            net.start( "ClientInt" )
+                net.writeEntity( baseProp )
+                net.writeEntity( seat )
+                net.send( ply )
+                
+            baseProp:setFrozen( false )
+            
+            end)
+        
+        canSit = true
+        hook.add( "PlayerUse", "EnterVehicleCheck", function( ply, ent )
+            
+            if ent == baseProp and hasPermission( "player.enterVehicle", ply ) and canSit then
+                
+                ply:enterVehicle( seat )
+                
+            end
+            
+            end)
+            
+        hook.add( "PlayerEnteredVehicle", "EnableHud", function( ply, ent )
+            
+            if ent == seat then
+                enableHud( ply, true )
+            end
+            
+            end)
+            
+        hook.add( "PlayerLeaveVehicle", "SitDelay", function( ply, ent )
+            
+            if ent == seat then
+                
+                canSit = false
+                timer.simple( 0.1, function() canSit = true end)
+                    
+            end
+            
+            end)
+        
+        local moveVec,turnVec = Vector(),Vector()
+        hook.add( "Think", "ShipFunctions",function()
+            
+            local driver = seat:getDriver()
+            
+            baseProp:addVelocity( moveVec - baseProp:getVelocity()/30 )
+            baseProp:addAngleVelocity( turnVec - baseProp:getAngleVelocity()/15 )
+            
+            if isValid( driver ) then
+                
+                moveVec = Vector( boolToNum( driver:keyDown( IN_KEY.FORWARD ) ) - boolToNum( driver:keyDown( IN_KEY.BACK ) ), boolToNum( driver:keyDown( IN_KEY.MOVELEFT ) ) - boolToNum( driver:keyDown( IN_KEY.MOVERIGHT ) ), boolToNum( driver:keyDown( IN_KEY.JUMP ) ) - boolToNum( driver:keyDown( IN_KEY.DUCK ) ) ):getRotated( baseProp:getAngles() ) * 30
+                turnVec = ( baseProp:worldToLocalAngles( driver:getEyeAngles() - baseProp:getAngles() ) ):getQuaternion():getRotationVector() / 10
+            else
+                
+                moveVec,turnVec = Vector(),Vector()
+                
+            end
+            
+            end)
+        
+    end)
+
+elseif CLIENT then
+    
+    local baseProp,seat
+    
+    net.receive( "SetHoloRenderBounds", function()
+        
+        local Holos = net.readTable()
+        
+        for _,v in pairs( Holos ) do
+            
+            v:setRenderBounds( Vector( 247, 189, 67 ), -Vector( 247, 189, 67 ) )
+            
+        end
+        
+        end)
+        
+    net.receive( "ClientInt", function()
+        
+        baseProp = net.readEntity()
+        seat = net.readEntity()
+        
+        end)
+        
+    hook.add( "CalcView", "DriverCamera", function()
+        
+        --I was originally going to include an interior to the model but currently I dont have the time to do that and code it
+        local isDriver
+        if isValid( seat ) then
+            isDriver = player() == seat:getDriver()
+        end
+        
+        if isDriver then
+            
+            view = {
+                origin = baseProp:getPos() + Vector( -200, 0, 50 ):getRotated( eyeAngles() ) + Vector( -50, 0, 0 ):getRotated( baseProp:getAngles() ),
+                angles = eyeAngles()
+            }
+            
+            return view
+            
+        end
+        
+        end)
+    
+end
